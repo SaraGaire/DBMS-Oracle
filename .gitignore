@@ -226,3 +226,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------- Person 2: migration and compatibility work ----------
+# The Python cache, .venv and .env are already covered above.
+# results/ is NOT ignored on purpose: the docs cite those saved outputs.
+# macOS Finder files
+.DS_Store
+# Personal VS Code settings
+.vscode/
