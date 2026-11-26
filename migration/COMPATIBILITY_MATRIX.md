@@ -4,13 +4,15 @@
 
 | | |
 |---|---|
-| Source | `corpus/oracle/lms/` (Library Management System, Oracle 12c+), untouched |
-| Target | `corpus/mariadb/lms/`, **MariaDB 11.8.9 LTS** (pinned), cross-checked on **MariaDB 13.0.2** |
+| Source | `corpus/oracle/lms/` (Library Management System, Oracle 12c+) and `corpus/oracle/hr/` (Oracle HR sample schema 21.1), untouched |
+| Target | `corpus/mariadb/lms/`, `corpus/mariadb/hr/`, **MariaDB 11.8.9 LTS** (pinned), cross-checked on **MariaDB 13.0.2** |
 | Session settings | `sql_mode=ORACLE,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,EMPTY_STRING_IS_NULL`, `autocommit=0`, database collation `utf8mb4_nopad_bin` ([why](SILENT_DIFFERENCES.md)) |
-| Migration diff | [`corpus.diff`](corpus.diff): every changed line carries a `-- MIGRATION:` comment |
-| Evidence | [`probes/`](probes/) (one probe per Oracle feature), [`verify/`](verify/) (62 object-level cases) |
+| Migration diff | [`corpus.diff`](corpus.diff) (LMS), [`corpus_hr.diff`](corpus_hr.diff) (HR): every changed line carries a `-- MIGRATION:` comment |
+| Evidence | [`probes/`](probes/) (one probe per Oracle feature), [`verify/`](verify/) (62 LMS + 57 HR object-level cases) |
 
-## Headline
+## Headline (LMS)
+
+The HR schema has [its own section](#hr-sample-schema-corpusoraclehr--corpusmariadbhr) below.
 
 Of the **39 schema objects** (sequences, tables, indexes, functions, procedures, triggers, views):
 
@@ -90,6 +92,62 @@ Status values: **unchanged** · **unchanged + shim** (source identical, calls a 
 | `trunc(date)` | `TRUNC(date)` (F1: missing on 11.8) | exact for DATE input. TRUNC(number) is not provided. Does **not** fix `TRUNC(a) - TRUNC(b)`. | MariaDB ≥ 13.0 (native, F1) |
 | package `dbms_output.put_line` | `DBMS_OUTPUT` (P17: missing on 11.8 and 13.0) | each line comes back immediately as a result set. Oracle buffers lines until the call ends and needs `SERVEROUTPUT ON`. | never (no built-in planned) |
 
+## HR sample schema (`corpus/oracle/hr` → `corpus/mariadb/hr`)
+
+Oracle's HR sample schema 21.1 (19c+), added by Person 1. It is mostly DDL and data, so it exercises the parts LMS did not use: named constraints, index-organized tables, constraint and trigger state, comments, and 2,000 lines of data loaded with `TO_DATE`. Migration diff: [`corpus_hr.diff`](corpus_hr.diff). Cases: [`verify/cases_hr.json`](verify/cases_hr.json).
+
+### Headline
+
+Of the **32 schema objects**:
+
+| Bucket | Count | Objects |
+|---|---|---|
+| **1. Runs unchanged** | **16** (50%) | 3 sequences, 11 secondary indexes, `add_job_history`, `update_job_history` |
+| **2. Runs after a change** | **15** (47%) | all 7 tables, the 6 primary-key indexes (merged into the PK), `emp_details_view`, `secure_dml` |
+| **3. No equivalent** | **1** (3%) | `secure_employees`: Oracle installs it **disabled**, and MariaDB has no disabled trigger state, so it is not created (the rewrite is in the file, commented out) |
+
+- **Size of the change:** 206 code lines added and 297 removed against 2,468 lines of Oracle code (comments, `Prompt` and `SET` excluded). Most of it is mechanical: 127 `TO_DATE` calls became `DATE` literals, and the 42 `COMMENT ON` statements became inline column comments and 7 `ALTER TABLE … COMMENT`. The data itself (`INSERT` values) is otherwise unchanged.
+- **Starting point:** the unchanged Oracle files under plain `sql_mode=ORACLE` run **7 of 95** statements ([`probes/baseline_hr_unchanged.json`](probes/baseline_hr_unchanged.json)). All 7 `CREATE TABLE`s fail on one construct, the named inline `NOT NULL` (T13), and 33 of the 88 failures cascade from that.
+- **Verification:** **57/57** cases pass on 11.8 and 13.0. With only `SET sql_mode=ORACLE`, **6 return wrong results with no error**: three `''`-is-NULL cases, `commission_pct = 1` silently stored as `0.99`, and two case-sensitive keys rejected as duplicates.
+- **On MariaDB 13.0** nothing in the port changes. `TO_DATE` is native there (F14), but it is also a keyword, so `CREATE FUNCTION to_date` fails (F14b). That is why the data uses `DATE` literals and not a shim: one corpus folder has to load on both versions.
+- **Loader:** the HR scripts use SQL*Plus `REM` comments and `SET NUMWIDTH/TRIMSPOOL/TAB/VERIFY/HEADING`. `tools/run_objects.py` now skips those like SQL*Plus does; without that, 0 of 289 statements split correctly.
+
+### Tables, indexes, sequences, view (`hr_create.sql`)
+
+| Object | Type | Status | Change | Why | Verified |
+|---|---|---|---|---|---|
+| REGIONS, LOCATIONS, DEPARTMENTS, JOBS | table | rewritten | `CONSTRAINT x_nn NOT NULL` → `NOT NULL`; column comments inline | named inline NOT NULL is a syntax error (T13); no `COMMENT ON` (T20). NOT NULL loses its name, and the error is 1048 instead of ORA-01400. | yes: row counts, NOT NULL and `''` cases, FKs |
+| COUNTRIES | table | rewritten | as above, and `ORGANIZATION INDEX` removed | syntax error (T14). InnoDB always clusters rows on the PK, so the table is still index-organized. | yes: 25 rows, PK case-sensitive (`'it'` next to `'IT'`), duplicate, FK |
+| EMPLOYEES | table | rewritten | as above; PRIMARY KEY added in its own `ALTER`; `REFERENCES departments` → `REFERENCES departments (department_id)`, same for the self reference | the self-referencing FK cannot point at a PK added in the same statement (T17, errno 150). A FK without a column list is rejected (T16). | yes: 15 cases: NOT NULL, `''`, CHECK at 0 and 0.01, `NUMBER(2,2)` rounding and overflow, UNIQUE email (case-sensitive), 3 FKs |
+| JOB_HISTORY | table | rewritten | NOT NULL names, 3 FK column lists | T13, T16 | yes: start dates, CHECK `end_date > start_date`, PK |
+| REG_ID_PK, LOC_ID_PK, DEPT_ID_PK, JOB_ID_PK, EMP_EMP_ID_PK, JHIST_EMP_ID_ST_DATE_PK | index | rewritten | `CREATE UNIQUE INDEX` removed; the `ADD CONSTRAINT … PRIMARY KEY` stays | MariaDB does not let the PK reuse an existing index, so keeping it gives **two** identical unique indexes (T15). InnoDB names the PK `PRIMARY`. | yes: `SHOW INDEX` has one index per PK |
+| EMP_DEPARTMENT_IX … LOC_COUNTRY_IX (11) | index | unchanged | none | InnoDB also **adds 2 indexes Oracle does not have**, `countr_reg_fk` and `dept_mgr_fk`, because every FK column must be indexed. They only cost write time. | yes: load, `information_schema.statistics` |
+| LOCATIONS_SEQ, DEPARTMENTS_SEQ, EMPLOYEES_SEQ | sequence | unchanged | none | `MAXVALUE … NOCACHE NOCYCLE` supported (T19) | yes: first values 3300 / 280 / 207, last value 9900, then error 4084 (ORA-08004) |
+| EMP_DETAILS_VIEW | view | rewritten | `WITH READ ONLY` → `ALGORITHM=TEMPTABLE` | syntax error (D4). **Dropping the clause is not enough:** the 6-table join view is then updatable (D4b). TEMPTABLE views cannot be updated (error 1288 vs ORA-42399). Cost: it is materialized per query, not merged; that is trivial at 107 rows. | yes: 106 rows, joined columns, UPDATE and DELETE rejected |
+| COMMENT ON TABLE / COLUMN (42) | DDL | rewritten | 7 × `ALTER TABLE t COMMENT = '…'`; 35 column comments inline in `CREATE TABLE` | no `COMMENT ON` (T20). Inline rather than `ALTER TABLE … MODIFY`, which would have to restate each column's type and constraints. | yes: `information_schema` holds all 42 |
+
+### Data (`hr_populate.sql`)
+
+| Object | Type | Status | Change | Why | Verified |
+|---|---|---|---|---|---|
+| 7 anonymous blocks (214 INSERT) | data | rewritten | `TO_DATE('17-06-2013', 'dd-MM-yyyy')` → `DATE '2013-06-17'` (127×) | no `TO_DATE` on 11.8 (F14); no shim possible on 13.0 (F14b). The literal is exact and is valid Oracle too. | yes: counts 5/25/27/23/107/19/10 = `hr_install.sql`'s own check; min/max/distinct hire dates and all 10 history dates match the Oracle source |
+| `ALTER SESSION SET NLS_LANGUAGE` | session | rewritten | `SET lc_time_names = 'en_US'` | no `ALTER SESSION` (D5). Both set the language of day and month names. | yes: `TO_CHAR(…,'DY')` cases |
+| `DISABLE` / `ENABLE CONSTRAINT dept_mgr_fk` | DDL | rewritten | `DROP FOREIGN KEY`, then re-add it | syntax error (T18). **Not** `SET FOREIGN_KEY_CHECKS=0`: that turns off every FK in the session, and turning it back on does not check rows loaded meanwhile (T18b). Re-adding the FK checks every row, like Oracle's `ENABLE` (1452 vs ORA-02298). | yes: FK enforced after load |
+
+### Procedural objects (`hr_code.sql`, `hr_compat.sql`)
+
+| Object | Type | Status | Change | Why | Verified |
+|---|---|---|---|---|---|
+| SECURE_DML | procedure | rewritten + shim | `TO_CHAR(SYSDATE,'DY') IN ('SAT','SUN')` → `UPPER(TO_CHAR(…))` | **MariaDB returns `Sat`, Oracle returns `SAT`** (F15). Under the binary collation the weekend test was never true, with no error. `RAISE_APPLICATION_ERROR` comes from `hr_compat.sql`. | yes: weekend and office-hour predicates on fixed timestamps (07:59 / 08:00 / 18:00 / 18:01, Sat / Wed), `-20205` text. Not by calling it, because `SYSDATE` ignores `SET timestamp`. |
+| SECURE_EMPLOYEES | trigger | **no equivalent** | not created | installed `DISABLED`; there is no `ALTER TRIGGER … DISABLE` (R8), so not creating it is what matches. It is also multi-event (R4) and statement-level (X22). To enable it: the 3 row-level triggers left commented in the file (they compile and run). They fire per row, so a DML touching 0 rows is not checked. | yes: DML on employees works at any hour |
+| ADD_JOB_HISTORY | procedure | unchanged | none | `%TYPE` parameters (T11) | yes: 7 cases: happy path, NULL department, NULL end date, `''` job, end before start, unknown job, duplicate PK |
+| UPDATE_JOB_HISTORY | trigger | unchanged | none | `AFTER UPDATE OF job_id, department_id … FOR EACH ROW` with `:old` (R1, R3). Fires when the column is in the SET list even if unchanged, as in Oracle. | yes: 6 cases incl. no-op SET, other columns, and the HR sample's own quirk: an employee whose `hire_date` is already in `job_history` (102, 176) cannot change job (ORA-00001 on both) |
+| hr_compat.sql | shim file | new | `raise_application_error` | same shim as `lms/00_compat.sql`; each corpus has its own database | yes |
+
+### Install scripts (`hr_install.sql`, `hr_uninstall.sql`)
+
+Not ported. They create and drop an Oracle **user** with a tablespace and quota, prompt with `ACCEPT`, and query `DBA_TABLESPACES`/`DATABASE_PROPERTIES`. In MariaDB a schema is a database, so this is `CREATE DATABASE hr` and a `CREATE USER … GRANT` on it, which belongs with the environment setup (Person 1). The install script's row-count check is kept as 7 verification cases. `make load-hr` does the rest.
+
 ## Feature matrix (reusable for other code bases)
 
 Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw output: `probes/features_oracle_mode*.md`. ✅ works · ❌ error · ⚠️ **runs but returns a different result** (the dangerous kind).
@@ -97,6 +155,15 @@ Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw out
 | Feature | 11.8 | 13.0 | Bucket | Workaround | Probe |
 |---|---|---|---|---|---|
 | VARCHAR2, NUMBER(p,s), DATE, CHAR types | ✅ | ✅ | unchanged | DATE becomes DATETIME. NUMBER without precision becomes **DOUBLE** (see ⚠️ below). | T1 |
+| `NUMBER(p,s)` overflow without strict mode | ⚠️ | ⚠️ | setting | `1` into `NUMBER(2,2)` is stored as **0.99**; `STRICT_TRANS_TABLES` makes it an error like ORA-01438 | T21 |
+| Named inline `CONSTRAINT c NOT NULL` | ❌ | ❌ | change | plain `NOT NULL` (the name is lost) | T13 |
+| `ORGANIZATION INDEX` | ❌ | ❌ | change | remove: InnoDB always clusters on the PK | T14 |
+| `CREATE UNIQUE INDEX x` then `PRIMARY KEY` reusing it | ⚠️ | ⚠️ | change | drop the index: MariaDB keeps it as a **duplicate** next to the PK | T15 |
+| `REFERENCES t` without a column list | ❌ | ❌ | change | name the PK column | T16 |
+| PK and self-referencing FK in one `ALTER TABLE` | ❌ | ❌ | change | add the PK first | T17 |
+| `DISABLE` / `ENABLE CONSTRAINT` | ❌ | ❌ | change | `DROP FOREIGN KEY` + re-add (validates). `FOREIGN_KEY_CHECKS=1` does **not** validate. | T18, T18b |
+| `COMMENT ON TABLE / COLUMN` | ❌ | ❌ | change | `ALTER TABLE … COMMENT =`, column `COMMENT '…'` | T20 |
+| `CREATE SEQUENCE … MAXVALUE NOCYCLE` | ✅ | ✅ | unchanged | error 4084 instead of ORA-08004 | T19 |
 | `NUMBER` variable arithmetic | ⚠️ | ⚠️ | change | `0.1 + 0.2 = 0.3` is false because NUMBER is DOUBLE. Declare money as `NUMBER(p,s)`. | N14, N15 |
 | `%TYPE`, `%ROWTYPE`, `TYPE … IS RECORD` | ✅ | ✅ | unchanged | | T11, T12, X6 |
 | `CONSTANT` | ❌ | ❌ | change | drop the keyword | T10 |
@@ -108,7 +175,8 @@ Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw out
 | **`DATE - DATE`** | ⚠️ | ⚠️ | change | `DATEDIFF(a, b)`. Correct only for two literals in the same month; otherwise a YYYYMMDDhhmmss difference. | F2, F2b |
 | **`DATE + n`** | ⚠️ | ⚠️ | change | `ADDDATE(d, n)` or `d + INTERVAL n DAY`. A literal gives the number `20261034`; a variable gets **n seconds** added. | F3, F3b |
 | NVL, NVL2, DECODE, `||`, CASE, SUBSTR(−n), ADD_MONTHS, TO_CHAR(date) | ✅ | ✅ | unchanged | | F4–F7, X16, X16c, X17, X17b |
-| TO_DATE, MONTHS_BETWEEN | ❌ | ✅ | change | `STR_TO_DATE`, `TIMESTAMPDIFF(MONTH, …)` | X16b, X16d |
+| TO_DATE, MONTHS_BETWEEN | ❌ | ✅ | change | `STR_TO_DATE`, `TIMESTAMPDIFF(MONTH, …)`; for constants, `DATE 'yyyy-mm-dd'`. **No `to_date` shim on 13.0**: it is a keyword there (F14b). | X16b, X16d, F14, F14b |
+| `TO_CHAR(d, 'DY' / 'MON')` letter case | ⚠️ | ⚠️ | change | MariaDB returns `Sat` / `Nov` whatever the format's case; Oracle returns `SAT`. Wrap in `UPPER()`. | F15 |
 | INSTR with 4 arguments | ❌ | ❌ | change | loop or `SUBSTRING_INDEX` | X17c |
 | `LISTAGG … WITHIN GROUP` | ❌ | ❌ | change | `GROUP_CONCAT(x ORDER BY x SEPARATOR ', ')` | F9, F9b |
 | `FETCH FIRST n ROWS`, ROWNUM, MINUS, derived table without alias, window functions | ✅ | ✅ | unchanged | | F10–F12, X13, X15 |
@@ -137,7 +205,10 @@ Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw out
 | Trigger `WHEN (…)` | ❌ | ❌ | change | `IF` in the body | R2 |
 | Multi-event trigger, `INSERTING/UPDATING` | ❌ | ✅ | change | one trigger per event | R4, R5 |
 | Statement-level trigger | ❌ | ❌ | no equivalent | row trigger, or move to the procedure | X22 |
+| `ALTER TRIGGER … DISABLE` / `ENABLE` | ❌ | ❌ | no equivalent | drop and re-create the trigger | R8 |
 | `USER_TABLES` etc., `CASCADE CONSTRAINTS PURGE` | ❌ | ❌ | no equivalent | `information_schema`, `DROP … IF EXISTS` | D1, D2 |
+| `CREATE VIEW … WITH READ ONLY` | ❌ | ❌ | change | `ALGORITHM=TEMPTABLE`. Just dropping the clause leaves a join view **updatable**. | D4, D4b |
+| `ALTER SESSION SET NLS_…` | ❌ | ❌ | change | `SET lc_time_names`, `SET time_zone` … per setting | D5 |
 | `'' IS NULL` and other empty-string rules | ⚠️ | ⚠️ | setting | `EMPTY_STRING_IS_NULL` (13/13 probes then match) | N1–N13 |
 | String comparison (case, trailing blanks) | ⚠️ | ⚠️ | setting | collation `utf8mb4_nopad_bin` | [SILENT_DIFFERENCES](SILENT_DIFFERENCES.md#4-string-comparison-collation) |
 
@@ -145,4 +216,6 @@ Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw out
 
 - **Inherited bug in the corpus** (same on Oracle): `V_MEMBER_SUMMARY` reports `open_loans = 1` for a member with no loans. The LEFT JOIN row has `return_date IS NULL`. The fix is `COUNT(CASE WHEN l.loan_id IS NOT NULL AND l.return_date IS NULL THEN 1 END)`. It is left unfixed in both folders so the migration diff stays clean, and is pinned by a verification case.
 - **For the harness (Person 3):** Q5 (`FETCH FIRST 3`) has ties at `times_borrowed = 1`, and Q9 has no `ORDER BY`, so row order and the tie-break are not deterministic on either database. Sort before comparing, and compare Q5 as a multiset of counts. NUMBER-without-precision values come back as `1.0`/`125.0` from MariaDB, so normalise numbers. Error codes: Oracle `-20001` ↔ MariaDB `20001`.
+- **HR, for the harness (Person 3):** [`verify/cases_hr.json`](verify/cases_hr.json) names its own corpus and load order (`"corpus"`, `"load"`), so the tool runs it with `--cases` and no other options. The HR error cases expect MariaDB numbers; the Oracle code is in each case name (ORA-01400 ↔ 1048, ORA-02290 ↔ 4025, ORA-02291 ↔ 1452, ORA-02292 ↔ 1451, ORA-00001 ↔ 1062, ORA-01438 ↔ 1264, ORA-08004 ↔ 4084, ORA-42399 ↔ 1288).
+- **HR, for the environment (Person 1):** `hr_install.sql` / `hr_uninstall.sql` (Oracle user, tablespace, `ACCEPT` prompts) are not ported. The MariaDB equivalent is `CREATE DATABASE hr` plus a user granted on it, which fits the container setup better than a script.
 - **For the environment (Person 1):** mount [`mariadb-oracle.cnf`](mariadb-oracle.cnf) so every connection gets the four settings without the application having to set them. It was tested: a new container reports the expected `sql_mode`, `autocommit=0` and `utf8mb4_nopad_bin`.
