@@ -1,6 +1,6 @@
 diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstall.sql corpus/oracle/hr/hr_code.sql corpus/mariadb/hr/hr_code.sql
---- corpus/oracle/hr/hr_code.sql	2026-11-03 13:41:00
-+++ corpus/mariadb/hr/hr_code.sql	2026-11-04 16:04:46
+--- corpus/oracle/hr/hr_code.sql
++++ corpus/mariadb/hr/hr_code.sql
 @@ -52,6 +52,10 @@
  rem --------------------------------------------------------------------------
  
@@ -61,8 +61,8 @@ diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstal
  REM procedure to add a row to the JOB_HISTORY table and row trigger 
 Only in corpus/mariadb/hr: hr_compat.sql
 diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstall.sql corpus/oracle/hr/hr_create.sql corpus/mariadb/hr/hr_create.sql
---- corpus/oracle/hr/hr_create.sql	2026-11-03 13:41:00
-+++ corpus/mariadb/hr/hr_create.sql	2026-11-04 16:04:03
+--- corpus/oracle/hr/hr_create.sql
++++ corpus/mariadb/hr/hr_create.sql
 @@ -46,6 +46,9 @@
  rem 
  rem --------------------------------------------------------------------------
@@ -547,8 +547,8 @@ diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstal
 -  IS 'Department id where employee works; foreign key to department_id 
 -column of the departments table';
 diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstall.sql corpus/oracle/hr/hr_populate.sql corpus/mariadb/hr/hr_populate.sql
---- corpus/oracle/hr/hr_populate.sql	2026-11-03 13:41:00
-+++ corpus/mariadb/hr/hr_populate.sql	2026-11-04 16:04:27
+--- corpus/oracle/hr/hr_populate.sql
++++ corpus/mariadb/hr/hr_populate.sql
 @@ -51,8 +51,13 @@
  rem --------------------------------------------------------------------------
  
