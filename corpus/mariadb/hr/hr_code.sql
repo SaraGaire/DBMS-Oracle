@@ -53,7 +53,7 @@ rem --------------------------------------------------------------------------
 
 
 -- MariaDB 11.8 port (sql_mode=ORACLE): every change is marked '-- MIGRATION:'.
--- See migration/COMPATIBILITY_MATRIX.md (HR section). Load hr_compat.sql first
+-- See docs/COMPATIBILITY_MATRIX.md (HR section). Load hr_compat.sql first
 -- (RAISE_APPLICATION_ERROR).
 
 SET FEEDBACK 1

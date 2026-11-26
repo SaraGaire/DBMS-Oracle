@@ -8,7 +8,7 @@ summary; --json writes the full results (consumed by the compatibility matrix).
 
 Usage:
   verify_objects.py [--sql-mode MODE] [--collation C] [--autocommit 0|1]
-                    [--cases migration/verify/cases.json] [--json out.json]
+                    [--cases tests/cases_lms.json] [--json out.json]
 """
 import argparse
 import datetime
@@ -24,8 +24,8 @@ import pymysql
 sys.path.insert(0, os.path.dirname(__file__))
 from run_objects import RECOMMENDED_COLLATION, RECOMMENDED_MODE, connect, split_statements  # noqa: E402
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-# Defaults for a cases file without "corpus" / "load" keys (cases.json = LMS).
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# Defaults for a cases file without "corpus" / "load" keys (tests/cases_lms.json).
 DEFAULT_CORPUS = "lms"
 DEFAULT_LOAD = ["00_compat.sql", "01_drop.sql", "02_schema.sql", "03_plsql.sql", "04_data.sql", "05_views.sql"]
 
@@ -115,7 +115,7 @@ def main():
     ap.add_argument("--sql-mode", default=RECOMMENDED_MODE)
     ap.add_argument("--collation", default=RECOMMENDED_COLLATION)
     ap.add_argument("--autocommit", type=int, default=0)
-    ap.add_argument("--cases", default=os.path.join(ROOT, "migration", "verify", "cases.json"))
+    ap.add_argument("--cases", default=os.path.join(ROOT, "tests", "cases_lms.json"))
     ap.add_argument("--json")
     a = ap.parse_args()
     spec = json.load(open(a.cases))

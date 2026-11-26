@@ -19,56 +19,56 @@ mariadb:
 
 # ---------- Person 2: migration and compatibility matrix ----------
 load:                     ## migrated corpus into MariaDB 11.8, recommended settings
-	$(PY) migration/tools/run_objects.py --reset --quiet corpus/mariadb/lms/0*.sql
+	$(PY) tools/run_objects.py --reset --quiet corpus/mariadb/lms/0*.sql
 
 baseline:                 ## UNCHANGED Oracle files under plain sql_mode=ORACLE (expected to fail)
-	-$(PY) migration/tools/run_objects.py --reset --sql-mode ORACLE --autocommit 1 --collation default --quiet \
-	  --json migration/probes/baseline_unchanged.json $(filter-out corpus/oracle/lms/01_drop.sql,$(wildcard corpus/oracle/lms/0*.sql))
+	-$(PY) tools/run_objects.py --reset --sql-mode ORACLE --autocommit 1 --collation default --quiet \
+	  --json results/probes/baseline_unchanged.json $(filter-out corpus/oracle/lms/01_drop.sql,$(wildcard corpus/oracle/lms/0*.sql))
 
 probe:                    ## one probe per Oracle feature, on 11.8 (two modes) and latest
-	python3 migration/tools/probe_features.py --json migration/probes/features_oracle_mode.json --md migration/probes/features_oracle_mode.md
-	python3 migration/tools/probe_features.py --extra-mode EMPTY_STRING_IS_NULL --json migration/probes/features_oracle_esin.json --md migration/probes/features_oracle_esin.md
-	MDB_CONTAINER=lms-mariadb-13 python3 migration/tools/probe_features.py --json migration/probes/features_oracle_mode_$(LATEST).json --md migration/probes/features_oracle_mode_$(LATEST).md
+	python3 tools/probe_features.py --md results/probes/features_oracle_mode.md
+	python3 tools/probe_features.py --extra-mode EMPTY_STRING_IS_NULL --md results/probes/features_oracle_esin.md
+	MDB_CONTAINER=lms-mariadb-13 python3 tools/probe_features.py --md results/probes/features_oracle_mode_$(LATEST).md
 
 verify:                   ## object-level cases, recommended settings (expect all pass)
-	$(PY) migration/tools/verify_objects.py --json migration/verify/results_recommended_$(MDB_VER).json
+	$(PY) tools/verify_objects.py --json results/verify/results_recommended_$(MDB_VER).json
 
 verify-naive:             ## same cases with only sql_mode=ORACLE (shows the silent differences)
-	-$(PY) migration/tools/verify_objects.py --sql-mode ORACLE --collation default --autocommit 1 --json migration/verify/results_naive_$(MDB_VER).json
+	-$(PY) tools/verify_objects.py --sql-mode ORACLE --collation default --autocommit 1 --json results/verify/results_naive_$(MDB_VER).json
 
 verify-latest:
-	MDB_PORT=3308 $(PY) migration/tools/verify_objects.py --json migration/verify/results_recommended_$(LATEST).json
+	MDB_PORT=3308 $(PY) tools/verify_objects.py --json results/verify/results_recommended_$(LATEST).json
 
 # The file timestamps diff prints are dropped, so the diffs only change when the SQL does.
 NO_TIMES := perl -pe 's/^((?:---|\+\+\+) \S+)\t.*/$$1/'
 
 diff:                     ## regenerate the migration diffs
-	diff -ru corpus/oracle/lms corpus/mariadb/lms | $(NO_TIMES) > migration/corpus.diff
+	diff -ru corpus/oracle/lms corpus/mariadb/lms | $(NO_TIMES) > results/diffs/lms.diff
 	diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstall.sql \
-	  corpus/oracle/hr corpus/mariadb/hr | $(NO_TIMES) > migration/corpus_hr.diff
+	  corpus/oracle/hr corpus/mariadb/hr | $(NO_TIMES) > results/diffs/hr.diff
 
 check: load verify verify-latest diff   ## run before every commit to the migration part
 
 # HR sample schema (corpus/oracle/hr -> corpus/mariadb/hr), database 'hr' / 'hr_verify'
 HR_ORACLE := $(addprefix corpus/oracle/hr/,hr_create.sql hr_populate.sql hr_code.sql)
 HR_LOAD   := $(addprefix corpus/mariadb/hr/,hr_create.sql hr_populate.sql hr_compat.sql hr_code.sql)
-HR_CASES  := migration/verify/cases_hr.json
+HR_CASES  := tests/cases_hr.json
 
 load-hr:                  ## migrated HR schema into MariaDB 11.8, recommended settings
-	MDB_DATABASE=hr $(PY) migration/tools/run_objects.py --reset --quiet $(HR_LOAD)
+	MDB_DATABASE=hr $(PY) tools/run_objects.py --reset --quiet $(HR_LOAD)
 
 baseline-hr:              ## UNCHANGED Oracle HR files under plain sql_mode=ORACLE (expected to fail)
-	-MDB_DATABASE=hr $(PY) migration/tools/run_objects.py --reset --sql-mode ORACLE --autocommit 1 --collation default --quiet \
-	  --json migration/probes/baseline_hr_unchanged.json $(HR_ORACLE)
+	-MDB_DATABASE=hr $(PY) tools/run_objects.py --reset --sql-mode ORACLE --autocommit 1 --collation default --quiet \
+	  --json results/probes/baseline_hr_unchanged.json $(HR_ORACLE)
 
 verify-hr:
-	$(PY) migration/tools/verify_objects.py --cases $(HR_CASES) --json migration/verify/results_hr_recommended_$(MDB_VER).json
+	$(PY) tools/verify_objects.py --cases $(HR_CASES) --json results/verify/results_hr_recommended_$(MDB_VER).json
 
 verify-hr-naive:
-	-$(PY) migration/tools/verify_objects.py --cases $(HR_CASES) --sql-mode ORACLE --collation default --autocommit 1 --json migration/verify/results_hr_naive_$(MDB_VER).json
+	-$(PY) tools/verify_objects.py --cases $(HR_CASES) --sql-mode ORACLE --collation default --autocommit 1 --json results/verify/results_hr_naive_$(MDB_VER).json
 
 verify-hr-latest:
-	MDB_PORT=3308 $(PY) migration/tools/verify_objects.py --cases $(HR_CASES) --json migration/verify/results_hr_recommended_$(LATEST).json
+	MDB_PORT=3308 $(PY) tools/verify_objects.py --cases $(HR_CASES) --json results/verify/results_hr_recommended_$(LATEST).json
 
 check-hr: load-hr verify-hr verify-hr-latest diff
 

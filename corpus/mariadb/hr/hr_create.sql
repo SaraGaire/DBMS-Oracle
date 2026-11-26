@@ -47,7 +47,7 @@ rem
 rem --------------------------------------------------------------------------
 
 -- MariaDB 11.8 port (sql_mode=ORACLE): every change is marked '-- MIGRATION:'.
--- See migration/COMPATIBILITY_MATRIX.md (HR section).
+-- See docs/COMPATIBILITY_MATRIX.md (HR section).
 
 SET FEEDBACK 1
 SET NUMWIDTH 10
