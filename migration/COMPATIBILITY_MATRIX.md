@@ -150,67 +150,67 @@ Not ported. They create and drop an Oracle **user** with a tablespace and quota,
 
 ## Feature matrix (reusable for other code bases)
 
-Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw output: `probes/features_oracle_mode*.md`. ✅ works · ❌ error · ⚠️ **runs but returns a different result** (the dangerous kind).
+Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw output: `probes/features_oracle_mode*.md`. **Works** = runs as on Oracle · **Error** = rejected · **Differs** = **runs but returns a different result** (the dangerous kind).
 
 | Feature | 11.8 | 13.0 | Bucket | Workaround | Probe |
 |---|---|---|---|---|---|
-| VARCHAR2, NUMBER(p,s), DATE, CHAR types | ✅ | ✅ | unchanged | DATE becomes DATETIME. NUMBER without precision becomes **DOUBLE** (see ⚠️ below). | T1 |
-| `NUMBER(p,s)` overflow without strict mode | ⚠️ | ⚠️ | setting | `1` into `NUMBER(2,2)` is stored as **0.99**; `STRICT_TRANS_TABLES` makes it an error like ORA-01438 | T21 |
-| Named inline `CONSTRAINT c NOT NULL` | ❌ | ❌ | change | plain `NOT NULL` (the name is lost) | T13 |
-| `ORGANIZATION INDEX` | ❌ | ❌ | change | remove: InnoDB always clusters on the PK | T14 |
-| `CREATE UNIQUE INDEX x` then `PRIMARY KEY` reusing it | ⚠️ | ⚠️ | change | drop the index: MariaDB keeps it as a **duplicate** next to the PK | T15 |
-| `REFERENCES t` without a column list | ❌ | ❌ | change | name the PK column | T16 |
-| PK and self-referencing FK in one `ALTER TABLE` | ❌ | ❌ | change | add the PK first | T17 |
-| `DISABLE` / `ENABLE CONSTRAINT` | ❌ | ❌ | change | `DROP FOREIGN KEY` + re-add (validates). `FOREIGN_KEY_CHECKS=1` does **not** validate. | T18, T18b |
-| `COMMENT ON TABLE / COLUMN` | ❌ | ❌ | change | `ALTER TABLE … COMMENT =`, column `COMMENT '…'` | T20 |
-| `CREATE SEQUENCE … MAXVALUE NOCYCLE` | ✅ | ✅ | unchanged | error 4084 instead of ORA-08004 | T19 |
-| `NUMBER` variable arithmetic | ⚠️ | ⚠️ | change | `0.1 + 0.2 = 0.3` is false because NUMBER is DOUBLE. Declare money as `NUMBER(p,s)`. | N14, N15 |
-| `%TYPE`, `%ROWTYPE`, `TYPE … IS RECORD` | ✅ | ✅ | unchanged | | T11, T12, X6 |
-| `CONSTANT` | ❌ | ❌ | change | drop the keyword | T10 |
-| `DEFAULT seq.NEXTVAL`, `seq.CURRVAL`, sequences | ✅ | ✅ | unchanged | | T2, P6c |
-| `DEFAULT SYSDATE` | ✅ | ✅ | unchanged | | T3 |
-| `DEFAULT TRUNC(SYSDATE)` / `USER` / `SYSTIMESTAMP` | ❌ | ✅ / ❌ / ❌ | change | `CURRENT_DATE`, `SUBSTRING_INDEX(USER(),'@',1)`, `CURRENT_TIMESTAMP(6)` | T4–T7 |
-| Function-based index | ❌ | ❌ | change | invisible virtual column + index | T8 |
-| `TRUNC(date)` | ❌ | ✅ | change | shim, or `CAST(x AS DATE)` | F1 |
-| **`DATE - DATE`** | ⚠️ | ⚠️ | change | `DATEDIFF(a, b)`. Correct only for two literals in the same month; otherwise a YYYYMMDDhhmmss difference. | F2, F2b |
-| **`DATE + n`** | ⚠️ | ⚠️ | change | `ADDDATE(d, n)` or `d + INTERVAL n DAY`. A literal gives the number `20261034`; a variable gets **n seconds** added. | F3, F3b |
-| NVL, NVL2, DECODE, `||`, CASE, SUBSTR(−n), ADD_MONTHS, TO_CHAR(date) | ✅ | ✅ | unchanged | | F4–F7, X16, X16c, X17, X17b |
-| TO_DATE, MONTHS_BETWEEN | ❌ | ✅ | change | `STR_TO_DATE`, `TIMESTAMPDIFF(MONTH, …)`; for constants, `DATE 'yyyy-mm-dd'`. **No `to_date` shim on 13.0**: it is a keyword there (F14b). | X16b, X16d, F14, F14b |
-| `TO_CHAR(d, 'DY' / 'MON')` letter case | ⚠️ | ⚠️ | change | MariaDB returns `Sat` / `Nov` whatever the format's case; Oracle returns `SAT`. Wrap in `UPPER()`. | F15 |
-| INSTR with 4 arguments | ❌ | ❌ | change | loop or `SUBSTRING_INDEX` | X17c |
-| `LISTAGG … WITHIN GROUP` | ❌ | ❌ | change | `GROUP_CONCAT(x ORDER BY x SEPARATOR ', ')` | F9, F9b |
-| `FETCH FIRST n ROWS`, ROWNUM, MINUS, derived table without alias, window functions | ✅ | ✅ | unchanged | | F10–F12, X13, X15 |
-| `(+)` outer join | ❌ | ✅ | change | ANSI `LEFT JOIN` | X14 |
-| CONNECT BY | ❌ | ❌ | change | `WITH RECURSIVE` (verified same rows) | X1, X1b |
-| MERGE | ❌ | ❌ | change | `INSERT … ON DUPLICATE KEY UPDATE` (needs a unique key) | X2, X2b |
-| PIVOT | ❌ | ❌ | change | `SUM(CASE …)` per column | X23 |
-| IN/OUT params, positional calls, param DEFAULT | ✅ | ✅ | unchanged | | P1, P3 |
-| Named notation `p(a => 1)` | ❌ | ❌ | change | positional call | P2 |
-| `SELECT … INTO … FOR UPDATE` | ✅ | ✅ | unchanged | lock lasts to COMMIT **only with autocommit=0** | P5 |
-| `INSERT … RETURNING … INTO` | ❌ | ❌ | change | `seq.CURRVAL` after insert; plain-SQL `RETURNING` exists (P6b) | P6, P6b |
-| `RAISE_APPLICATION_ERROR` | ❌ | ❌ | no equivalent → shim | `SIGNAL` (shim) | P7, P7b |
-| `SQL%ROWCOUNT`, NO_DATA_FOUND, TOO_MANY_ROWS, WHEN OTHERS, RAISE, SQLERRM, user exceptions | ✅ | ✅ | unchanged | `SQLCODE` numbers are MariaDB's | P8–P11, X9, X21 |
-| `PRAGMA EXCEPTION_INIT` | ❌ | ❌ | change | `WHEN OTHERS THEN IF SQLCODE = <MariaDB errno> …` (MariaDB error numbers, not ORA codes) | X10 |
-| COMMIT/ROLLBACK in procedures | ⚠️ | ⚠️ | unchanged + setting | ROLLBACK undoes nothing with autocommit=1 (P12) | P12 |
-| Explicit cursors, cursor FOR loops, OPEN/FETCH/CLOSE, `%NOTFOUND`, GOTO | ✅ | ✅ | unchanged | | P13, P14, X11, X20 |
-| `EXECUTE IMMEDIATE` | ✅ | ✅ | unchanged | | P15 |
-| Packages (spec + body, package state) | ✅ | ✅ | unchanged | | X8 |
-| `SYS_REFCURSOR` | ❌ | ✅ (CREATE accepted; fetching not probed) | change | return a result set from the procedure | X12 |
-| Associative arrays `INDEX BY` | ❌ | ✅ (INTEGER/VARCHAR2 keys; not PLS_INTEGER) | change | temporary table | X5–X5c |
-| BULK COLLECT, FORALL | ❌ | ❌ | no equivalent | set-based SQL or a cursor loop | X3, X4 |
-| `PRAGMA AUTONOMOUS_TRANSACTION` | ❌ | ❌ | no equivalent | redesign: a second connection, or log outside the transaction | X7 |
-| `CREATE TYPE … AS OBJECT` | ❌ | ❌ | no equivalent | redesign as tables/JSON | X19 |
-| DBMS_OUTPUT, UTL_FILE | ❌ | ❌ | no equivalent | shim (DBMS_OUTPUT); move file I/O to the application (UTL_FILE) | P17, X18 |
-| Row triggers with `:NEW/:OLD`, DECLARE in trigger, `UPDATE OF col` | ✅ | ✅ | unchanged | | R1, R3, R6, R7 |
-| Trigger `WHEN (…)` | ❌ | ❌ | change | `IF` in the body | R2 |
-| Multi-event trigger, `INSERTING/UPDATING` | ❌ | ✅ | change | one trigger per event | R4, R5 |
-| Statement-level trigger | ❌ | ❌ | no equivalent | row trigger, or move to the procedure | X22 |
-| `ALTER TRIGGER … DISABLE` / `ENABLE` | ❌ | ❌ | no equivalent | drop and re-create the trigger | R8 |
-| `USER_TABLES` etc., `CASCADE CONSTRAINTS PURGE` | ❌ | ❌ | no equivalent | `information_schema`, `DROP … IF EXISTS` | D1, D2 |
-| `CREATE VIEW … WITH READ ONLY` | ❌ | ❌ | change | `ALGORITHM=TEMPTABLE`. Just dropping the clause leaves a join view **updatable**. | D4, D4b |
-| `ALTER SESSION SET NLS_…` | ❌ | ❌ | change | `SET lc_time_names`, `SET time_zone` … per setting | D5 |
-| `'' IS NULL` and other empty-string rules | ⚠️ | ⚠️ | setting | `EMPTY_STRING_IS_NULL` (13/13 probes then match) | N1–N13 |
-| String comparison (case, trailing blanks) | ⚠️ | ⚠️ | setting | collation `utf8mb4_nopad_bin` | [SILENT_DIFFERENCES](SILENT_DIFFERENCES.md#4-string-comparison-collation) |
+| VARCHAR2, NUMBER(p,s), DATE, CHAR types | Works | Works | unchanged | DATE becomes DATETIME. NUMBER without precision becomes **DOUBLE** (see "Differs" below). | T1 |
+| `NUMBER(p,s)` overflow without strict mode | Differs | Differs | setting | `1` into `NUMBER(2,2)` is stored as **0.99**; `STRICT_TRANS_TABLES` makes it an error like ORA-01438 | T21 |
+| Named inline `CONSTRAINT c NOT NULL` | Error | Error | change | plain `NOT NULL` (the name is lost) | T13 |
+| `ORGANIZATION INDEX` | Error | Error | change | remove: InnoDB always clusters on the PK | T14 |
+| `CREATE UNIQUE INDEX x` then `PRIMARY KEY` reusing it | Differs | Differs | change | drop the index: MariaDB keeps it as a **duplicate** next to the PK | T15 |
+| `REFERENCES t` without a column list | Error | Error | change | name the PK column | T16 |
+| PK and self-referencing FK in one `ALTER TABLE` | Error | Error | change | add the PK first | T17 |
+| `DISABLE` / `ENABLE CONSTRAINT` | Error | Error | change | `DROP FOREIGN KEY` + re-add (validates). `FOREIGN_KEY_CHECKS=1` does **not** validate. | T18, T18b |
+| `COMMENT ON TABLE / COLUMN` | Error | Error | change | `ALTER TABLE … COMMENT =`, column `COMMENT '…'` | T20 |
+| `CREATE SEQUENCE … MAXVALUE NOCYCLE` | Works | Works | unchanged | error 4084 instead of ORA-08004 | T19 |
+| `NUMBER` variable arithmetic | Differs | Differs | change | `0.1 + 0.2 = 0.3` is false because NUMBER is DOUBLE. Declare money as `NUMBER(p,s)`. | N14, N15 |
+| `%TYPE`, `%ROWTYPE`, `TYPE … IS RECORD` | Works | Works | unchanged | | T11, T12, X6 |
+| `CONSTANT` | Error | Error | change | drop the keyword | T10 |
+| `DEFAULT seq.NEXTVAL`, `seq.CURRVAL`, sequences | Works | Works | unchanged | | T2, P6c |
+| `DEFAULT SYSDATE` | Works | Works | unchanged | | T3 |
+| `DEFAULT TRUNC(SYSDATE)` / `USER` / `SYSTIMESTAMP` | Error | Works / Error / Error | change | `CURRENT_DATE`, `SUBSTRING_INDEX(USER(),'@',1)`, `CURRENT_TIMESTAMP(6)` | T4–T7 |
+| Function-based index | Error | Error | change | invisible virtual column + index | T8 |
+| `TRUNC(date)` | Error | Works | change | shim, or `CAST(x AS DATE)` | F1 |
+| **`DATE - DATE`** | Differs | Differs | change | `DATEDIFF(a, b)`. Correct only for two literals in the same month; otherwise a YYYYMMDDhhmmss difference. | F2, F2b |
+| **`DATE + n`** | Differs | Differs | change | `ADDDATE(d, n)` or `d + INTERVAL n DAY`. A literal gives the number `20261034`; a variable gets **n seconds** added. | F3, F3b |
+| NVL, NVL2, DECODE, `||`, CASE, SUBSTR(−n), ADD_MONTHS, TO_CHAR(date) | Works | Works | unchanged | | F4–F7, X16, X16c, X17, X17b |
+| TO_DATE, MONTHS_BETWEEN | Error | Works | change | `STR_TO_DATE`, `TIMESTAMPDIFF(MONTH, …)`; for constants, `DATE 'yyyy-mm-dd'`. **No `to_date` shim on 13.0**: it is a keyword there (F14b). | X16b, X16d, F14, F14b |
+| `TO_CHAR(d, 'DY' / 'MON')` letter case | Differs | Differs | change | MariaDB returns `Sat` / `Nov` whatever the format's case; Oracle returns `SAT`. Wrap in `UPPER()`. | F15 |
+| INSTR with 4 arguments | Error | Error | change | loop or `SUBSTRING_INDEX` | X17c |
+| `LISTAGG … WITHIN GROUP` | Error | Error | change | `GROUP_CONCAT(x ORDER BY x SEPARATOR ', ')` | F9, F9b |
+| `FETCH FIRST n ROWS`, ROWNUM, MINUS, derived table without alias, window functions | Works | Works | unchanged | | F10–F12, X13, X15 |
+| `(+)` outer join | Error | Works | change | ANSI `LEFT JOIN` | X14 |
+| CONNECT BY | Error | Error | change | `WITH RECURSIVE` (verified same rows) | X1, X1b |
+| MERGE | Error | Error | change | `INSERT … ON DUPLICATE KEY UPDATE` (needs a unique key) | X2, X2b |
+| PIVOT | Error | Error | change | `SUM(CASE …)` per column | X23 |
+| IN/OUT params, positional calls, param DEFAULT | Works | Works | unchanged | | P1, P3 |
+| Named notation `p(a => 1)` | Error | Error | change | positional call | P2 |
+| `SELECT … INTO … FOR UPDATE` | Works | Works | unchanged | lock lasts to COMMIT **only with autocommit=0** | P5 |
+| `INSERT … RETURNING … INTO` | Error | Error | change | `seq.CURRVAL` after insert; plain-SQL `RETURNING` exists (P6b) | P6, P6b |
+| `RAISE_APPLICATION_ERROR` | Error | Error | no equivalent → shim | `SIGNAL` (shim) | P7, P7b |
+| `SQL%ROWCOUNT`, NO_DATA_FOUND, TOO_MANY_ROWS, WHEN OTHERS, RAISE, SQLERRM, user exceptions | Works | Works | unchanged | `SQLCODE` numbers are MariaDB's | P8–P11, X9, X21 |
+| `PRAGMA EXCEPTION_INIT` | Error | Error | change | `WHEN OTHERS THEN IF SQLCODE = <MariaDB errno> …` (MariaDB error numbers, not ORA codes) | X10 |
+| COMMIT/ROLLBACK in procedures | Differs | Differs | unchanged + setting | ROLLBACK undoes nothing with autocommit=1 (P12) | P12 |
+| Explicit cursors, cursor FOR loops, OPEN/FETCH/CLOSE, `%NOTFOUND`, GOTO | Works | Works | unchanged | | P13, P14, X11, X20 |
+| `EXECUTE IMMEDIATE` | Works | Works | unchanged | | P15 |
+| Packages (spec + body, package state) | Works | Works | unchanged | | X8 |
+| `SYS_REFCURSOR` | Error | Works (CREATE accepted; fetching not probed) | change | return a result set from the procedure | X12 |
+| Associative arrays `INDEX BY` | Error | Works (INTEGER/VARCHAR2 keys; not PLS_INTEGER) | change | temporary table | X5–X5c |
+| BULK COLLECT, FORALL | Error | Error | no equivalent | set-based SQL or a cursor loop | X3, X4 |
+| `PRAGMA AUTONOMOUS_TRANSACTION` | Error | Error | no equivalent | redesign: a second connection, or log outside the transaction | X7 |
+| `CREATE TYPE … AS OBJECT` | Error | Error | no equivalent | redesign as tables/JSON | X19 |
+| DBMS_OUTPUT, UTL_FILE | Error | Error | no equivalent | shim (DBMS_OUTPUT); move file I/O to the application (UTL_FILE) | P17, X18 |
+| Row triggers with `:NEW/:OLD`, DECLARE in trigger, `UPDATE OF col` | Works | Works | unchanged | | R1, R3, R6, R7 |
+| Trigger `WHEN (…)` | Error | Error | change | `IF` in the body | R2 |
+| Multi-event trigger, `INSERTING/UPDATING` | Error | Works | change | one trigger per event | R4, R5 |
+| Statement-level trigger | Error | Error | no equivalent | row trigger, or move to the procedure | X22 |
+| `ALTER TRIGGER … DISABLE` / `ENABLE` | Error | Error | no equivalent | drop and re-create the trigger | R8 |
+| `USER_TABLES` etc., `CASCADE CONSTRAINTS PURGE` | Error | Error | no equivalent | `information_schema`, `DROP … IF EXISTS` | D1, D2 |
+| `CREATE VIEW … WITH READ ONLY` | Error | Error | change | `ALGORITHM=TEMPTABLE`. Just dropping the clause leaves a join view **updatable**. | D4, D4b |
+| `ALTER SESSION SET NLS_…` | Error | Error | change | `SET lc_time_names`, `SET time_zone` … per setting | D5 |
+| `'' IS NULL` and other empty-string rules | Differs | Differs | setting | `EMPTY_STRING_IS_NULL` (13/13 probes then match) | N1–N13 |
+| String comparison (case, trailing blanks) | Differs | Differs | setting | collation `utf8mb4_nopad_bin` | [SILENT_DIFFERENCES](SILENT_DIFFERENCES.md#4-string-comparison-collation) |
 
 ## Notes for the team
 
