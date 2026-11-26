@@ -5,7 +5,7 @@
 -- Each shim stands in for an Oracle built-in that MariaDB 11.8 does not have,
 -- so the application objects can call it with their original source text.
 -- Remove a shim once the pinned MariaDB version provides the built-in
--- (MariaDB 13.0 already has TRUNC(date); see migration/COMPATIBILITY_MATRIX.md).
+-- (MariaDB 13.0 already has TRUNC(date); see docs/COMPATIBILITY_MATRIX.md).
 -- =============================================================
 
 -- ---------- RAISE_APPLICATION_ERROR(-200xx, msg) ----------

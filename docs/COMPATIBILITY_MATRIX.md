@@ -7,8 +7,8 @@
 | Source | `corpus/oracle/lms/` (Library Management System, Oracle 12c+) and `corpus/oracle/hr/` (Oracle HR sample schema 21.1), untouched |
 | Target | `corpus/mariadb/lms/`, `corpus/mariadb/hr/`, **MariaDB 11.8.9 LTS** (pinned), cross-checked on **MariaDB 13.0.2** |
 | Session settings | `sql_mode=ORACLE,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,EMPTY_STRING_IS_NULL`, `autocommit=0`, database collation `utf8mb4_nopad_bin` ([why](SILENT_DIFFERENCES.md)) |
-| Migration diff | [`corpus.diff`](corpus.diff) (LMS), [`corpus_hr.diff`](corpus_hr.diff) (HR): every changed line carries a `-- MIGRATION:` comment |
-| Evidence | [`probes/`](probes/) (one probe per Oracle feature), [`verify/`](verify/) (62 LMS + 57 HR object-level cases) |
+| Migration diff | [`results/diffs/lms.diff`](../results/diffs/lms.diff) (LMS), [`results/diffs/hr.diff`](../results/diffs/hr.diff) (HR): every changed line carries a `-- MIGRATION:` comment |
+| Evidence | [`results/probes/`](../results/probes/) (one probe per Oracle feature), [`tests/`](../tests/) (62 LMS + 57 HR object-level cases) and their results in [`results/verify/`](../results/verify/) |
 
 ## Headline (LMS)
 
@@ -23,11 +23,11 @@ Of the **39 schema objects** (sequences, tables, indexes, functions, procedures,
 | **3. No equivalent** | **0 objects** | 2 *scripts* were redesigned: `01_drop.sql` (data dictionary loop) and `run_all.sql` (SQL*Plus) |
 
 - **Size of the change:** in `02`–`06`, 82 added or removed code lines against 609 lines of Oracle code (comments and blank lines excluded). The 1-to-3 trigger split and the re-indentation inside the new `IF` blocks account for most of the 64 in `03_plsql.sql`. All 60 data-load statements (`04_data.sql`) are unchanged.
-- **Starting point:** loading the unchanged Oracle files under plain `sql_mode=ORACLE` runs 75 of 123 statements. Most of the 48 failures cascade from one table (`LOANS`) whose DEFAULT is rejected. The isolated probes separate the real causes from the cascade ([`probes/baseline_unchanged.json`](probes/baseline_unchanged.json)).
+- **Starting point:** loading the unchanged Oracle files under plain `sql_mode=ORACLE` runs 75 of 123 statements. Most of the 48 failures cascade from one table (`LOANS`) whose DEFAULT is rejected. The isolated probes separate the real causes from the cascade ([`results/probes/baseline_unchanged.json`](../results/probes/baseline_unchanged.json)).
 - **Verification:** **62/62** cases pass on 11.8 and on 13.0. With only `SET sql_mode=ORACLE` (default collation, autocommit on), **7 cases return wrong results with no error** ([details](SILENT_DIFFERENCES.md)).
 - **On MariaDB 13.0** the original multi-event `trg_books_audit` runs unchanged, and so do `TRUNC(date)` and `DEFAULT TRUNC(SYSDATE)`. That moves 1 object from bucket 2 to bucket 1 and makes the `TRUNC` shim unnecessary.
 
-> **What "Verified" means here.** *Yes* = the MariaDB result matches the result Oracle's semantics require: the business rules in `corpus/oracle/lms/03_plsql.sql`, the expected values in `04_data.sql`'s comments, and Oracle's documented behaviour. The cases are in [`verify/cases.json`](verify/cases.json). A side-by-side run against the Oracle reference container is the harness's job (Person 3), and the case file is written so it can be reused there.
+> **What "Verified" means here.** *Yes* = the MariaDB result matches the result Oracle's semantics require: the business rules in `corpus/oracle/lms/03_plsql.sql`, the expected values in `04_data.sql`'s comments, and Oracle's documented behaviour. The cases are in [`tests/cases_lms.json`](../tests/cases_lms.json). A side-by-side run against the Oracle reference container is the harness's job (Person 3), and the case file is written so it can be reused there.
 
 ## Object matrix
 
@@ -77,12 +77,12 @@ Status values: **unchanged** · **unchanged + shim** (source identical, calls a 
 |---|---|---|---|---|---|
 | 01_drop.sql | script | **no equivalent → redesigned** | dictionary loop + `EXECUTE IMMEDIATE` → `DROP … IF EXISTS` with `FOREIGN_KEY_CHECKS=0` | `USER_TABLES/USER_SEQUENCES/USER_OBJECTS` do not exist (D2) and `CASCADE CONSTRAINTS PURGE` is not supported (D1). `EXECUTE IMMEDIATE` itself works (P15), but the loop is not needed: MariaDB has `IF EXISTS`. | yes: rerunnable, run before every verification case |
 | 04_data.sql (55 INSERT, 4 UPDATE, COMMIT) | data | unchanged | none (header comment only) | `DATE 'yyyy-mm-dd'` literals and doubled quotes (`O''Reilly`) supported (F13) | yes: fines 25.00 and 10.00 created by triggers, as the comments predict |
-| Q1–Q6, Q8–Q10, Q12–Q14 | query | unchanged | none | `FETCH FIRST n ROWS ONLY` (F10), derived table without alias (F11), `RANK() OVER` (F12), UNION, EXISTS, all supported | yes: results listed in `probes/migrated_11.8.json` |
+| Q1–Q6, Q8–Q10, Q12–Q14 | query | unchanged | none | `FETCH FIRST n ROWS ONLY` (F10), derived table without alias (F11), `RANK() OVER` (F12), UNION, EXISTS, all supported | yes: results listed in `results/probes/migrated_11.8.json` |
 | Q7, Q11 | query | unchanged + shim | none | `TRUNC(SYSDATE)` comes from the shim on 11.8; native on 13.0 | yes |
 | D1 | PL/SQL block | rewritten | named notation `issue_book(p_book_id => 4, …)` → positional `issue_book(4, 2, 1, v_loan_id)` | `=>` not supported on 11.8 or 13.0 (P2) | yes: "Issued, loan id = 9" |
 | D2–D7 | PL/SQL block | unchanged + shim | none | `DBMS_OUTPUT.PUT_LINE` from the shim. Nested blocks, `WHEN OTHERS`, `SQLERRM`, `%TYPE`, explicit cursor FOR loop all work (P11, P13, P16, T11). | yes: same messages as Oracle, incl. `ORA-20001: …` text |
 | SET LINESIZE / PAGESIZE / SERVEROUTPUT | SQL*Plus | removed | — | client formatting commands, not SQL | n/a |
-| run_all.sql | SQL*Plus | **no equivalent → redesigned** | `@@file` → `migration/tools/run_objects.py`, which splits on SQL*Plus `/` rules | the `mariadb` client has no `/` terminator or `@@`. Keeping `/` means the two corpus folders diff cleanly. | yes |
+| run_all.sql | SQL*Plus | **no equivalent → redesigned** | `@@file` → `tools/run_objects.py`, which splits on SQL*Plus `/` rules | the `mariadb` client has no `/` terminator or `@@`. Keeping `/` means the two corpus folders diff cleanly. | yes |
 
 ### The compatibility layer (`corpus/mariadb/lms/00_compat.sql`)
 
@@ -94,7 +94,7 @@ Status values: **unchanged** · **unchanged + shim** (source identical, calls a 
 
 ## HR sample schema (`corpus/oracle/hr` → `corpus/mariadb/hr`)
 
-Oracle's HR sample schema 21.1 (19c+), added by Person 1. It is mostly DDL and data, so it exercises the parts LMS did not use: named constraints, index-organized tables, constraint and trigger state, comments, and 2,000 lines of data loaded with `TO_DATE`. Migration diff: [`corpus_hr.diff`](corpus_hr.diff). Cases: [`verify/cases_hr.json`](verify/cases_hr.json).
+Oracle's HR sample schema 21.1 (19c+), added by Person 1. It is mostly DDL and data, so it exercises the parts LMS did not use: named constraints, index-organized tables, constraint and trigger state, comments, and 2,000 lines of data loaded with `TO_DATE`. Migration diff: [`results/diffs/hr.diff`](../results/diffs/hr.diff). Cases: [`tests/cases_hr.json`](../tests/cases_hr.json).
 
 ### Headline
 
@@ -107,7 +107,7 @@ Of the **32 schema objects**:
 | **3. No equivalent** | **1** (3%) | `secure_employees`: Oracle installs it **disabled**, and MariaDB has no disabled trigger state, so it is not created (the rewrite is in the file, commented out) |
 
 - **Size of the change:** 206 code lines added and 297 removed against 2,468 lines of Oracle code (comments, `Prompt` and `SET` excluded). Most of it is mechanical: 127 `TO_DATE` calls became `DATE` literals, and the 42 `COMMENT ON` statements became inline column comments and 7 `ALTER TABLE … COMMENT`. The data itself (`INSERT` values) is otherwise unchanged.
-- **Starting point:** the unchanged Oracle files under plain `sql_mode=ORACLE` run **7 of 95** statements ([`probes/baseline_hr_unchanged.json`](probes/baseline_hr_unchanged.json)). All 7 `CREATE TABLE`s fail on one construct, the named inline `NOT NULL` (T13), and 33 of the 88 failures cascade from that.
+- **Starting point:** the unchanged Oracle files under plain `sql_mode=ORACLE` run **7 of 95** statements ([`results/probes/baseline_hr_unchanged.json`](../results/probes/baseline_hr_unchanged.json)). All 7 `CREATE TABLE`s fail on one construct, the named inline `NOT NULL` (T13), and 33 of the 88 failures cascade from that.
 - **Verification:** **57/57** cases pass on 11.8 and 13.0. With only `SET sql_mode=ORACLE`, **6 return wrong results with no error**: three `''`-is-NULL cases, `commission_pct = 1` silently stored as `0.99`, and two case-sensitive keys rejected as duplicates.
 - **On MariaDB 13.0** nothing in the port changes. `TO_DATE` is native there (F14), but it is also a keyword, so `CREATE FUNCTION to_date` fails (F14b). That is why the data uses `DATE` literals and not a shim: one corpus folder has to load on both versions.
 - **Loader:** the HR scripts use SQL*Plus `REM` comments and `SET NUMWIDTH/TRIMSPOOL/TAB/VERIFY/HEADING`. `tools/run_objects.py` now skips those like SQL*Plus does; without that, 0 of 289 statements split correctly.
@@ -150,7 +150,7 @@ Not ported. They create and drop an Oracle **user** with a tablespace and quota,
 
 ## Feature matrix (reusable for other code bases)
 
-Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw output: `probes/features_oracle_mode*.md`. **Works** = runs as on Oracle · **Error** = rejected · **Differs** = **runs but returns a different result** (the dangerous kind).
+Probe IDs refer to [`tools/probe_features.py`](../tools/probe_features.py). Raw output: `results/probes/features_oracle_mode*.md`. **Works** = runs as on Oracle · **Error** = rejected · **Differs** = **runs but returns a different result** (the dangerous kind).
 
 | Feature | 11.8 | 13.0 | Bucket | Workaround | Probe |
 |---|---|---|---|---|---|
@@ -216,6 +216,6 @@ Probe IDs refer to [`tools/probe_features.py`](tools/probe_features.py). Raw out
 
 - **Inherited bug in the corpus** (same on Oracle): `V_MEMBER_SUMMARY` reports `open_loans = 1` for a member with no loans. The LEFT JOIN row has `return_date IS NULL`. The fix is `COUNT(CASE WHEN l.loan_id IS NOT NULL AND l.return_date IS NULL THEN 1 END)`. It is left unfixed in both folders so the migration diff stays clean, and is pinned by a verification case.
 - **For the harness (Person 3):** Q5 (`FETCH FIRST 3`) has ties at `times_borrowed = 1`, and Q9 has no `ORDER BY`, so row order and the tie-break are not deterministic on either database. Sort before comparing, and compare Q5 as a multiset of counts. NUMBER-without-precision values come back as `1.0`/`125.0` from MariaDB, so normalise numbers. Error codes: Oracle `-20001` ↔ MariaDB `20001`.
-- **HR, for the harness (Person 3):** [`verify/cases_hr.json`](verify/cases_hr.json) names its own corpus and load order (`"corpus"`, `"load"`), so the tool runs it with `--cases` and no other options. The HR error cases expect MariaDB numbers; the Oracle code is in each case name (ORA-01400 ↔ 1048, ORA-02290 ↔ 4025, ORA-02291 ↔ 1452, ORA-02292 ↔ 1451, ORA-00001 ↔ 1062, ORA-01438 ↔ 1264, ORA-08004 ↔ 4084, ORA-42399 ↔ 1288).
+- **HR, for the harness (Person 3):** [`tests/cases_hr.json`](../tests/cases_hr.json) names its own corpus and load order (`"corpus"`, `"load"`), so the tool runs it with `--cases` and no other options. The HR error cases expect MariaDB numbers; the Oracle code is in each case name (ORA-01400 ↔ 1048, ORA-02290 ↔ 4025, ORA-02291 ↔ 1452, ORA-02292 ↔ 1451, ORA-00001 ↔ 1062, ORA-01438 ↔ 1264, ORA-08004 ↔ 4084, ORA-42399 ↔ 1288).
 - **HR, for the environment (Person 1):** `hr_install.sql` / `hr_uninstall.sql` (Oracle user, tablespace, `ACCEPT` prompts) are not ported. The MariaDB equivalent is `CREATE DATABASE hr` plus a user granted on it, which fits the container setup better than a script.
-- **For the environment (Person 1):** mount [`mariadb-oracle.cnf`](mariadb-oracle.cnf) so every connection gets the four settings without the application having to set them. It was tested: a new container reports the expected `sql_mode`, `autocommit=0` and `utf8mb4_nopad_bin`.
+- **For the environment (Person 1):** mount [`mariadb-oracle.cnf`](../config/mariadb-oracle.cnf) so every connection gets the four settings without the application having to set them. It was tested: a new container reports the expected `sql_mode`, `autocommit=0` and `utf8mb4_nopad_bin`.

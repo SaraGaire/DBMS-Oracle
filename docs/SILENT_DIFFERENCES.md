@@ -1,6 +1,6 @@
 # Silent differences: Oracle vs MariaDB `sql_mode=ORACLE`
 
-These differences raise **no error**. The code compiles, runs and returns a plausible but different answer, which is what migration teams fear most. Every claim below comes from a probe in [`tools/probe_features.py`](tools/probe_features.py) or a case in [`verify/cases.json`](verify/cases.json) / [`verify/cases_hr.json`](verify/cases_hr.json), run on MariaDB 11.8.9 and 13.0.2. Both versions behave the same on everything in this file.
+These differences raise **no error**. The code compiles, runs and returns a plausible but different answer, which is what migration teams fear most. Every claim below comes from a probe in [`tools/probe_features.py`](../tools/probe_features.py) or a case in [`tests/cases_lms.json`](../tests/cases_lms.json) / [`tests/cases_hr.json`](../tests/cases_hr.json), run on MariaDB 11.8.9 and 13.0.2. Both versions behave the same on everything in this file.
 
 **Measured impact on this corpus:** the migrated code passes **62/62** verification cases with the recommended settings. With only `SET sql_mode=ORACLE` (default collation, autocommit on), **7 cases return wrong results and none of them raises an error**:
 
@@ -30,15 +30,15 @@ Three more HR findings need a **code** change, not a setting, so the naive run c
 Reproduce:
 
 ```sh
-.venv/bin/python migration/tools/verify_objects.py                                                  # 62/62
-.venv/bin/python migration/tools/verify_objects.py --sql-mode ORACLE --collation default --autocommit 1   # 55/62
+.venv/bin/python tools/verify_objects.py                                                  # 62/62
+.venv/bin/python tools/verify_objects.py --sql-mode ORACLE --collation default --autocommit 1   # 55/62
 make verify-hr verify-hr-naive                                                                       # 57/57, 51/57
 ```
 
 ## Recommended settings
 
 ```ini
-# migration/mariadb-oracle.cnf  (or the SET SESSION equivalents on every connection)
+# config/mariadb-oracle.cnf  (or the SET SESSION equivalents on every connection)
 sql_mode = ORACLE,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,EMPTY_STRING_IS_NULL
 autocommit = 0
 collation_server = utf8mb4_nopad_bin

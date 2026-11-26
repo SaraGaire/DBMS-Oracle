@@ -1,7 +1,7 @@
 {
   "_doc": [
       "Object-level verification cases for the migrated HR sample schema (corpus/mariadb/hr).",
-      "Same format as cases.json; 'corpus' and 'load' tell verify_objects.py which files to load for every case.",
+      "Same format as cases_lms.json; 'corpus' and 'load' tell verify_objects.py which files to load for every case.",
       "Expected values are what Oracle returns for the same input (corpus/oracle/hr). Error numbers are MariaDB's; the Oracle error is in the case name.",
       "SECURE_DML reads SYSDATE, which SET timestamp does not move in MariaDB, so its predicate is checked on fixed timestamps instead of by calling it."
   ],

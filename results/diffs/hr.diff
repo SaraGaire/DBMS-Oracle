@@ -6,7 +6,7 @@ diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstal
  
  
 +-- MariaDB 11.8 port (sql_mode=ORACLE): every change is marked '-- MIGRATION:'.
-+-- See migration/COMPATIBILITY_MATRIX.md (HR section). Load hr_compat.sql first
++-- See docs/COMPATIBILITY_MATRIX.md (HR section). Load hr_compat.sql first
 +-- (RAISE_APPLICATION_ERROR).
 +
  SET FEEDBACK 1
@@ -68,7 +68,7 @@ diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstal
  rem --------------------------------------------------------------------------
  
 +-- MariaDB 11.8 port (sql_mode=ORACLE): every change is marked '-- MIGRATION:'.
-+-- See migration/COMPATIBILITY_MATRIX.md (HR section).
++-- See docs/COMPATIBILITY_MATRIX.md (HR section).
 +
  SET FEEDBACK 1
  SET NUMWIDTH 10
@@ -554,7 +554,7 @@ diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstal
  
  
 +-- MariaDB 11.8 port (sql_mode=ORACLE): every change is marked '-- MIGRATION:'.
-+-- See migration/COMPATIBILITY_MATRIX.md (HR section).
++-- See docs/COMPATIBILITY_MATRIX.md (HR section).
 +
  SET VERIFY OFF
 -ALTER SESSION SET NLS_LANGUAGE=American;
