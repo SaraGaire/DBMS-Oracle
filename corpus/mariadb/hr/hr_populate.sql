@@ -52,7 +52,7 @@ rem --------------------------------------------------------------------------
 
 
 -- MariaDB 11.8 port (sql_mode=ORACLE): every change is marked '-- MIGRATION:'.
--- See migration/COMPATIBILITY_MATRIX.md (HR section).
+-- See docs/COMPATIBILITY_MATRIX.md (HR section).
 
 SET VERIFY OFF
 -- MIGRATION: ALTER SESSION SET NLS_LANGUAGE -> lc_time_names (no ALTER SESSION, probe D5).
