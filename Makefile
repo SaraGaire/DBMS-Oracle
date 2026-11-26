@@ -39,10 +39,13 @@ verify-naive:             ## same cases with only sql_mode=ORACLE (shows the sil
 verify-latest:
 	MDB_PORT=3308 $(PY) migration/tools/verify_objects.py --json migration/verify/results_recommended_$(LATEST).json
 
-diff:                     ## regenerate the migration diff
-	-diff -ru corpus/oracle/lms corpus/mariadb/lms > migration/corpus.diff
-	-diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstall.sql \
-	  corpus/oracle/hr corpus/mariadb/hr > migration/corpus_hr.diff
+# The file timestamps diff prints are dropped, so the diffs only change when the SQL does.
+NO_TIMES := perl -pe 's/^((?:---|\+\+\+) \S+)\t.*/$$1/'
+
+diff:                     ## regenerate the migration diffs
+	diff -ru corpus/oracle/lms corpus/mariadb/lms | $(NO_TIMES) > migration/corpus.diff
+	diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstall.sql \
+	  corpus/oracle/hr corpus/mariadb/hr | $(NO_TIMES) > migration/corpus_hr.diff
 
 check: load verify verify-latest diff   ## run before every commit to the migration part
 
