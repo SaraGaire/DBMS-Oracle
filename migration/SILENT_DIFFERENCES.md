@@ -1,6 +1,6 @@
 # Silent differences: Oracle vs MariaDB `sql_mode=ORACLE`
 
-These differences raise **no error**. The code compiles, runs and returns a plausible but different answer, which is what migration teams fear most. Every claim below comes from a probe in [`tools/probe_features.py`](tools/probe_features.py) or a case in [`verify/cases.json`](verify/cases.json), run on MariaDB 11.8.9 and 13.0.2. Both versions behave the same on everything in this file.
+These differences raise **no error**. The code compiles, runs and returns a plausible but different answer, which is what migration teams fear most. Every claim below comes from a probe in [`tools/probe_features.py`](tools/probe_features.py) or a case in [`verify/cases.json`](verify/cases.json) / [`verify/cases_hr.json`](verify/cases_hr.json), run on MariaDB 11.8.9 and 13.0.2. Both versions behave the same on everything in this file.
 
 **Measured impact on this corpus:** the migrated code passes **62/62** verification cases with the recommended settings. With only `SET sql_mode=ORACLE` (default collation, autocommit on), **7 cases return wrong results and none of them raises an error**:
 
@@ -14,11 +14,25 @@ These differences raise **no error**. The code compiles, runs and returns a plau
 | emails `a@x` and `A@x` | both allowed | **duplicate key** | collation |
 | `amount / 0` | ORA-01476 divisor is zero | NULL (then a CHECK error) | `ERROR_FOR_DIVISION_BY_ZERO` |
 
+**HR sample schema:** **57/57** with the recommended settings, **51/57** with `sql_mode=ORACLE` alone. Again no failing case raises an error:
+
+| Case | Oracle | `sql_mode=ORACLE` alone | Fixed by |
+|---|---|---|---|
+| employee with `last_name = ''` | ORA-01400, rejected | **accepted** | `EMPTY_STRING_IS_NULL` |
+| job with `job_title = ''` | ORA-01400, rejected | **accepted** | `EMPTY_STRING_IS_NULL` |
+| `add_job_history` called with job `''` | ORA-01400 | FK error 1452 (`''` looked up as a job) | `EMPTY_STRING_IS_NULL` |
+| `commission_pct = 1` in `NUMBER(2,2)` | ORA-01438, rejected | **stored as 0.99** | `STRICT_TRANS_TABLES` |
+| country `'it'` next to `'IT'` | both allowed | **duplicate key** | collation |
+| email `'sking'` next to `'SKING'` | both allowed | **duplicate key** | collation |
+
+Three more HR findings need a **code** change, not a setting, so the naive run cannot show them: day names in `TO_CHAR` (§8), re-enabled foreign keys (§9) and read-only views (§10).
+
 Reproduce:
 
 ```sh
 .venv/bin/python migration/tools/verify_objects.py                                                  # 62/62
 .venv/bin/python migration/tools/verify_objects.py --sql-mode ORACLE --collation default --autocommit 1   # 55/62
+make verify-hr verify-hr-naive                                                                       # 57/57, 51/57
 ```
 
 ## Recommended settings
@@ -115,6 +129,7 @@ The server default is `STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,…`, but 
 
 - `1/0` returns NULL with a warning. Oracle raises ORA-01476. In PL/SQL, a block that relies on `WHEN ZERO_DIVIDE` or `WHEN OTHERS` silently continues (probe P16).
 - Values too long for a column are truncated with a warning instead of rejected (tested: `'abcdef'` into `VARCHAR2(3)` stores `'abc'`, warning 1265). Oracle raises ORA-12899.
+- Numbers too large for `NUMBER(p,s)` are **clamped to the largest value** (probe T21: `1` into `NUMBER(2,2)` stores `0.99`). Oracle raises ORA-01438. In HR this is `employees.commission_pct`: a 100% commission would be silently saved as 99%. Rounding within range is the same on both (`0.994` → `0.99`).
 
 Always write `sql_mode` as a full list, as in the recommended settings above.
 
@@ -138,3 +153,22 @@ In this corpus it shows up as `1.0` / `125.0` in output. The money values are wh
 | Built-in errors (duplicate key, NOT NULL, CHECK) | ORA-00001 / 01400 / 02290 | 1062 / 1048 / 4025 |
 
 Code that tests `SQLCODE = -20001`, or `-1` for a duplicate key, must be updated. Named exceptions are mapped correctly: `NO_DATA_FOUND` (P9), `TOO_MANY_ROWS` (X21) and `DUP_VAL_ON_INDEX` (tested) are all caught by name.
+
+## 8. Day and month names: letter case (`TO_CHAR`)
+
+Oracle takes the letter case of a name from the format: `'DY'` gives `SAT`, `'Dy'` gives `Sat`, `'dy'` gives `sat`. MariaDB 11.8 and 13.0 return **`Sat` for all three** (probe F15). A comparison against upper-case names is then false under the recommended binary collation, and true only by accident under the case-insensitive default.
+
+HR's `secure_dml` tests `TO_CHAR(SYSDATE, 'DY') IN ('SAT', 'SUN')` to block changes at weekends. Unmigrated, the weekend block **never fires**, with no error. Fix: `UPPER(TO_CHAR(d, 'DY'))`. The same applies to `'MON'`, `'MONTH'` and `'DAY'` (tested: `Nov`, `November`, `Saturday`). Search with `grep -niE "TO_CHAR\s*\([^)]*'(DY|DAY|MON|MONTH)'" *.sql`.
+
+The language of the names follows `lc_time_names` (Oracle: `NLS_DATE_LANGUAGE`); `hr_populate.sql` sets it to `en_US`.
+
+## 9. Re-enabling foreign keys does not check existing rows
+
+Oracle's `ALTER TABLE … ENABLE CONSTRAINT` validates every row by default and fails with ORA-02298 on an orphan. The tempting MariaDB replacement, `SET FOREIGN_KEY_CHECKS = 0` … `= 1`, does **not** check anything when turned back on (probe T18b: an orphan row inserted while it was off stays, with no error). It is also session-wide, so it switches off **every** FK, not one.
+
+What matches Oracle: `ALTER TABLE t DROP FOREIGN KEY fk` before the load, and `ALTER TABLE t ADD CONSTRAINT fk FOREIGN KEY …` after it. Adding a FK checks all rows (error 1452). `hr_populate.sql` does this for `dept_mgr_fk`.
+
+## 10. Join views are updatable unless you say otherwise
+
+Oracle's `WITH READ ONLY` is a syntax error in MariaDB (probe D4). Deleting the clause makes the view load, and then **`UPDATE` through it succeeds** (probe D4b): MariaDB allows updating one base table through a join view. For HR's `emp_details_view` (6 tables), that would let a reporting user change `employees.salary`. `CREATE ALGORITHM=TEMPTABLE VIEW` is never updatable (error 1288). Granting only `SELECT` on the view is the other option, and the right one if performance matters, because TEMPTABLE views are materialized on every query.
+
