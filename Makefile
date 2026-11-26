@@ -3,7 +3,8 @@ PY      := .venv/bin/python
 MDB_VER := 11.8
 LATEST  := 13.0
 
-.PHONY: setup mariadb load baseline probe verify verify-naive verify-latest diff check
+.PHONY: setup mariadb load baseline probe verify verify-naive verify-latest diff check \
+        load-hr baseline-hr verify-hr verify-hr-naive verify-hr-latest check-hr
 
 setup:
 	python3 -m venv .venv
@@ -40,7 +41,32 @@ verify-latest:
 
 diff:                     ## regenerate the migration diff
 	-diff -ru corpus/oracle/lms corpus/mariadb/lms > migration/corpus.diff
+	-diff -ru -x .gitkeep -x README.md -x README.txt -x hr_install.sql -x hr_uninstall.sql \
+	  corpus/oracle/hr corpus/mariadb/hr > migration/corpus_hr.diff
 
 check: load verify verify-latest diff   ## run before every commit to the migration part
+
+# HR sample schema (corpus/oracle/hr -> corpus/mariadb/hr), database 'hr' / 'hr_verify'
+HR_ORACLE := $(addprefix corpus/oracle/hr/,hr_create.sql hr_populate.sql hr_code.sql)
+HR_LOAD   := $(addprefix corpus/mariadb/hr/,hr_create.sql hr_populate.sql hr_compat.sql hr_code.sql)
+HR_CASES  := migration/verify/cases_hr.json
+
+load-hr:                  ## migrated HR schema into MariaDB 11.8, recommended settings
+	MDB_DATABASE=hr $(PY) migration/tools/run_objects.py --reset --quiet $(HR_LOAD)
+
+baseline-hr:              ## UNCHANGED Oracle HR files under plain sql_mode=ORACLE (expected to fail)
+	-MDB_DATABASE=hr $(PY) migration/tools/run_objects.py --reset --sql-mode ORACLE --autocommit 1 --collation default --quiet \
+	  --json migration/probes/baseline_hr_unchanged.json $(HR_ORACLE)
+
+verify-hr:
+	$(PY) migration/tools/verify_objects.py --cases $(HR_CASES) --json migration/verify/results_hr_recommended_$(MDB_VER).json
+
+verify-hr-naive:
+	-$(PY) migration/tools/verify_objects.py --cases $(HR_CASES) --sql-mode ORACLE --collation default --autocommit 1 --json migration/verify/results_hr_naive_$(MDB_VER).json
+
+verify-hr-latest:
+	MDB_PORT=3308 $(PY) migration/tools/verify_objects.py --cases $(HR_CASES) --json migration/verify/results_hr_recommended_$(LATEST).json
+
+check-hr: load-hr verify-hr verify-hr-latest diff
 
 # ---------- Person 3: harness and guide ----------
